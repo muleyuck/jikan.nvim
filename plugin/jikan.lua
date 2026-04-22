@@ -1,1 +1,1 @@
-require("jikan").setup()
+require('jikan').setup()
