@@ -7,7 +7,6 @@ local state = {
   buf = nil,
   timer = nil,
   colon_on = true,
-  last_min = -1,
 }
 
 local config = { font = 'Inter', color = nil }
@@ -158,10 +157,6 @@ end
 
 local function tick()
   state.colon_on = not state.colon_on
-  local cur_min = tonumber(vim.fn.strftime('%M')) or -1
-  if cur_min ~= state.last_min then
-    state.last_min = cur_min
-  end
   draw()
 end
 
@@ -209,7 +204,6 @@ local function open()
 
   state.buf = buf
   state.colon_on = true
-  state.last_min = tonumber(vim.fn.strftime('%M')) or -1
 
   vim.api.nvim_win_set_buf(0, buf)
 
@@ -234,14 +228,24 @@ local function open()
     tick()
   end, { ['repeat'] = -1 })
 
-  vim.api.nvim_create_autocmd('BufWipeout', {
-    buffer = buf,
-    once = true,
-    callback = stop_timer,
+  local aug_active = vim.api.nvim_create_augroup('jikan_active', { clear = true })
+  vim.api.nvim_create_autocmd('ColorScheme', {
+    group = aug_active,
+    callback = apply_hl,
   })
   vim.api.nvim_create_autocmd('VimResized', {
+    group = aug_active,
     buffer = buf,
     callback = draw,
+  })
+  vim.api.nvim_create_autocmd('BufWipeout', {
+    group = aug_active,
+    buffer = buf,
+    once = true,
+    callback = function()
+      stop_timer()
+      vim.api.nvim_del_augroup_by_name('jikan_active')
+    end,
   })
 end
 
@@ -254,12 +258,11 @@ function M.setup(opts)
       config.color = opts.color
     end
   end
+  local aug = vim.api.nvim_create_augroup('jikan', { clear = true })
   vim.api.nvim_create_autocmd('VimEnter', {
+    group = aug,
     once = true,
     callback = open,
-  })
-  vim.api.nvim_create_autocmd('ColorScheme', {
-    callback = apply_hl,
   })
 end
 
