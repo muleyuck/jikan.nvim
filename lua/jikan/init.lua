@@ -24,10 +24,10 @@ local function load_glyphs()
   local result = {}
   for _, ch in ipairs(chars) do
     local suffix = ch == ':' and 'colon' or ch
-    local fname = config.font .. '_' .. suffix .. '.txt'
+    local fname = config.font .. '/' .. suffix .. '.txt'
     local raw = vim.fn.readfile(art .. fname)
     if not raw or #raw == 0 then
-      raw = vim.fn.readfile(art .. 'Inter_' .. suffix .. '.txt')
+      raw = vim.fn.readfile(art .. 'Inter/' .. suffix .. '.txt')
     end
     if raw and #raw > 0 then
       -- width = widest row in braille chars (each char is 3 bytes)
