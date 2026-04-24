@@ -11,9 +11,8 @@ local state = {
 
 local config = { font = 'Inter', color = nil }
 
-local GLYPH_ROWS = 20
-
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
+local glyph_rows = 0
 
 local function load_glyphs()
   local src = debug.getinfo(1, 'S').source:sub(2)
@@ -21,7 +20,10 @@ local function load_glyphs()
   local art = root .. '/art/'
 
   local chars = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':' }
-  local result = {}
+
+  -- first pass: load raw lines and find max row count across all chars
+  local raw_map = {}
+  local max_rows = 0
   for _, ch in ipairs(chars) do
     local suffix = ch == ':' and 'colon' or ch
     local fname = config.font .. '/' .. suffix .. '.txt'
@@ -30,42 +32,52 @@ local function load_glyphs()
       raw = vim.fn.readfile(art .. 'Inter/' .. suffix .. '.txt')
     end
     if raw and #raw > 0 then
-      -- width = widest row in braille chars (each char is 3 bytes)
-      local width = 0
-      for _, line in ipairs(raw) do
-        local w = #line / 3
-        if w > width then
-          width = w
-        end
+      raw_map[ch] = raw
+      if #raw > max_rows then
+        max_rows = #raw
       end
-      -- pad each row to uniform width
-      local rows = {}
-      for _, line in ipairs(raw) do
-        local w = #line / 3
-        if w < width then
-          rows[#rows + 1] = line .. string.rep(EMPTY, width - w)
-        else
-          rows[#rows + 1] = line
-        end
-      end
-      -- center vertically within GLYPH_ROWS
-      local pad_top = math.floor((GLYPH_ROWS - #rows) / 2)
-      local pad_bot = GLYPH_ROWS - #rows - pad_top
-      local empty_row = string.rep(EMPTY, width)
-      local padded = {}
-      for _ = 1, pad_top do
-        padded[#padded + 1] = empty_row
-      end
-      for _, r in ipairs(rows) do
-        padded[#padded + 1] = r
-      end
-      for _ = 1, pad_bot do
-        padded[#padded + 1] = empty_row
-      end
-      result[ch] = { rows = padded, width = width }
     end
   end
-  return result
+
+  -- second pass: pad each glyph to max_rows
+  local result = {}
+  for ch, raw in pairs(raw_map) do
+    -- width = widest row in braille chars (each char is 3 bytes)
+    local width = 0
+    for _, line in ipairs(raw) do
+      local w = #line / 3
+      if w > width then
+        width = w
+      end
+    end
+    -- pad each row to uniform width
+    local rows = {}
+    for _, line in ipairs(raw) do
+      local w = #line / 3
+      if w < width then
+        rows[#rows + 1] = line .. string.rep(EMPTY, width - w)
+      else
+        rows[#rows + 1] = line
+      end
+    end
+    -- center vertically within max_rows
+    local pad_top = math.floor((max_rows - #rows) / 2)
+    local pad_bot = max_rows - #rows - pad_top
+    local empty_row = string.rep(EMPTY, width)
+    local padded = {}
+    for _ = 1, pad_top do
+      padded[#padded + 1] = empty_row
+    end
+    for _, r in ipairs(rows) do
+      padded[#padded + 1] = r
+    end
+    for _ = 1, pad_bot do
+      padded[#padded + 1] = empty_row
+    end
+    result[ch] = { rows = padded, width = width }
+  end
+
+  return result, max_rows
 end
 
 local function draw()
@@ -78,7 +90,7 @@ local function draw()
   end
 
   if not glyphs then
-    glyphs = load_glyphs()
+    glyphs, glyph_rows = load_glyphs()
   end
 
   local time_str = vim.fn.strftime('%H%M')
@@ -105,7 +117,7 @@ local function draw()
   local win_width = vim.api.nvim_win_get_width(win)
   local win_height = vim.api.nvim_win_get_height(win)
   local start_col = math.max(0, math.floor((win_width - total_width) / 2))
-  local start_row = math.max(1, math.floor((win_height - GLYPH_ROWS) / 2))
+  local start_row = math.max(1, math.floor((win_height - glyph_rows) / 2))
   local pad_str = string.rep(' ', start_col)
 
   -- Build buffer lines
@@ -114,7 +126,7 @@ local function draw()
     buf_lines[#buf_lines + 1] = ''
   end
 
-  for r = 1, GLYPH_ROWS do
+  for r = 1, glyph_rows do
     local row_idx = start_row + r - 1
     if row_idx >= 1 and row_idx <= win_height then
       local parts = {}
@@ -142,7 +154,7 @@ local function draw()
   -- Highlight all glyph rows
   -- col offsets are in bytes: pad_str is ASCII (1 byte/char), braille is 3 bytes/char
   vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
-  for r = 1, GLYPH_ROWS do
+  for r = 1, glyph_rows do
     local row_idx = start_row + r - 1
     if row_idx >= 1 and row_idx <= win_height then
       vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
@@ -152,7 +164,7 @@ local function draw()
     end
   end
 
-  pcall(vim.api.nvim_win_set_cursor, win, { start_row + math.floor(GLYPH_ROWS / 2), start_col })
+  pcall(vim.api.nvim_win_set_cursor, win, { start_row + math.floor(glyph_rows / 2), start_col })
 end
 
 local function tick()
