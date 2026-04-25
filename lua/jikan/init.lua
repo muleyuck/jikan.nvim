@@ -19,6 +19,7 @@ local FONT_ROWS = {
 
 local COLOR_DARK = '#AED6F1' -- light color for dark backgrounds
 local COLOR_LIGHT = '#1A4A7A' -- dark color for light backgrounds
+local GAP = 2 -- braille cells between characters
 
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
 local glyph_rows = 0
@@ -102,7 +103,6 @@ local function calc_total_width(chars, gap)
 end
 
 local function build_and_highlight(chars, win, start_row, start_col, total_width)
-  local GAP = 2
   local win_height = vim.api.nvim_win_get_height(win)
   local pad_str = string.rep(' ', start_col)
 
@@ -158,7 +158,6 @@ local function draw()
     glyphs, glyph_rows = load_glyphs()
   end
 
-  local GAP = 2
   local chars = get_time_chars()
   local total_width = calc_total_width(chars, GAP)
 
