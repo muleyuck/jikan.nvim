@@ -11,6 +11,12 @@ local state = {
 
 local config = { font = 'Inter', color = nil }
 
+-- フォントごとの固定行数（新フォント追加時はここも更新する）
+local FONT_ROWS = {
+  Inter = 19,
+  Digital = 22,
+}
+
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
 local glyph_rows = 0
 
@@ -53,10 +59,9 @@ local function load_glyphs()
   local art = root .. '/art/'
 
   local chars = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':' }
+  local max_rows = FONT_ROWS[config.font] or FONT_ROWS['Inter']
 
-  -- first pass: load raw lines and find max row count across all chars
-  local raw_map = {}
-  local max_rows = 0
+  local result = {}
   for _, ch in ipairs(chars) do
     local suffix = ch == ':' and 'colon' or ch
     local fname = config.font .. '/' .. suffix .. '.txt'
@@ -65,17 +70,8 @@ local function load_glyphs()
       raw = vim.fn.readfile(art .. 'Inter/' .. suffix .. '.txt')
     end
     if raw and #raw > 0 then
-      raw_map[ch] = raw
-      if #raw > max_rows then
-        max_rows = #raw
-      end
+      result[ch] = process_glyph(raw, max_rows, EMPTY)
     end
-  end
-
-  -- second pass: pad each glyph to max_rows
-  local result = {}
-  for ch, raw in pairs(raw_map) do
-    result[ch] = process_glyph(raw, max_rows, EMPTY)
   end
 
   return result, max_rows
