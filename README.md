@@ -4,11 +4,11 @@
 
 # jikan.nvim
 
-Braille art clock on your Neovim start screen.
+Your Neovim start screen, replaced by a clock.
 
-jikan.nvim displays the current time in braille characters when you open Neovim without a file. No configuration required — it just works.
+jikan.nvim shows the current time when you open Neovim without a file. No configuration, no clutter — just the time.
 
-![demo](https://github.com/user-attachments/assets/dbc21529-9528-4a94-9f0e-713ee9ecf2af)
+![demo](https://github.com/user-attachments/assets/6a526adb-5195-4749-9319-5ef5a2f2fbca)
 
 ## Features
 
