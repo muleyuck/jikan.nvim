@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/muleyuck/jikan.nvim/compare/v1.0.0...v1.1.0) (2026-04-25)
+
+
+### Features
+
+* set filetype and fire BufEnter autocmd for jikan buffer ([3daf358](https://github.com/muleyuck/jikan.nvim/commit/3daf3587f92b245c8878074bd209e3f048fa3959))
+
+
+### Performance Improvements
+
+* replace dynamic max_rows calculation with per-font fixed FONT_ROWS table ([7d9de6f](https://github.com/muleyuck/jikan.nvim/commit/7d9de6f3b013861e904e2630e9d55b2e3a4d10a0))
+
 ## 1.0.0 (2026-04-25)
 
 
