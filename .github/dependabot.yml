@@ -5,9 +5,7 @@ updates:
     assignees:
       - muleyuck
     cooldown:
-      semver-patch-days: 2
-      semver-minor-days: 7
-      semver-major-days: 14
+      default-days: 2
     groups:
       dependencies:
         patterns:
