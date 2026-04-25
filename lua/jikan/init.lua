@@ -9,13 +9,16 @@ local state = {
   colon_on = true,
 }
 
-local config = { font = 'Inter', color = nil }
+local DEFAULT_FONT = 'Inter'
+local config = { font = DEFAULT_FONT, color = nil }
 
--- フォントごとの固定行数（新フォント追加時はここも更新する）
 local FONT_ROWS = {
   Inter = 19,
   Digital = 22,
 }
+
+local COLOR_DARK = '#AED6F1' -- light color for dark backgrounds
+local COLOR_LIGHT = '#1A4A7A' -- dark color for light backgrounds
 
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
 local glyph_rows = 0
@@ -31,11 +34,7 @@ local function process_glyph(raw_lines, max_rows, empty_char)
   local rows = {}
   for _, line in ipairs(raw_lines) do
     local w = #line / 3
-    if w < width then
-      rows[#rows + 1] = line .. string.rep(empty_char, width - w)
-    else
-      rows[#rows + 1] = line
-    end
+    rows[#rows + 1] = w < width and (line .. string.rep(empty_char, width - w)) or line
   end
   local pad_top = math.floor((max_rows - #rows) / 2)
   local pad_bot = max_rows - #rows - pad_top
@@ -59,7 +58,7 @@ local function load_glyphs()
   local art = root .. '/art/'
 
   local chars = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':' }
-  local max_rows = FONT_ROWS[config.font] or FONT_ROWS['Inter']
+  local max_rows = FONT_ROWS[config.font] or FONT_ROWS[DEFAULT_FONT]
 
   local result = {}
   for _, ch in ipairs(chars) do
@@ -77,6 +76,69 @@ local function load_glyphs()
   return result, max_rows
 end
 
+local function get_time_chars()
+  local time_str = vim.fn.strftime('%H%M')
+  return {
+    time_str:sub(1, 1),
+    time_str:sub(2, 2),
+    ':',
+    time_str:sub(3, 3),
+    time_str:sub(4, 4),
+  }
+end
+
+local function calc_total_width(chars, gap)
+  local total = 0
+  for i, ch in ipairs(chars) do
+    local g = glyphs[ch]
+    if g then
+      total = total + g.width
+      if i < #chars then
+        total = total + gap
+      end
+    end
+  end
+  return total
+end
+
+local function build_and_highlight(chars, win, start_row, start_col, total_width)
+  local GAP = 2
+  local win_height = vim.api.nvim_win_get_height(win)
+  local pad_str = string.rep(' ', start_col)
+
+  local buf_lines = {}
+  for _ = 1, win_height do
+    buf_lines[#buf_lines + 1] = ''
+  end
+
+  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
+  for r = 1, glyph_rows do
+    local row_idx = start_row + r - 1
+    if row_idx >= 1 and row_idx <= win_height then
+      local parts = {}
+      for i, ch in ipairs(chars) do
+        local g = glyphs[ch]
+        if g then
+          local blank = string.rep(EMPTY, g.width)
+          parts[#parts + 1] = (ch == ':' and not state.colon_on) and blank or (g.rows[r] or blank)
+          if i < #chars then
+            parts[#parts + 1] = string.rep(EMPTY, GAP)
+          end
+        end
+      end
+      buf_lines[row_idx] = pad_str .. table.concat(parts)
+      vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
+        end_col = start_col + total_width * 3,
+        hl_group = 'JikanClock',
+      })
+    end
+  end
+
+  vim.api.nvim_set_option_value('modifiable', true, { buf = state.buf })
+  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, buf_lines)
+  vim.api.nvim_set_option_value('modifiable', false, { buf = state.buf })
+end
+
 local function draw()
   if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
     return
@@ -90,76 +152,16 @@ local function draw()
     glyphs, glyph_rows = load_glyphs()
   end
 
-  local time_str = vim.fn.strftime('%H%M')
-  local chars = {
-    time_str:sub(1, 1),
-    time_str:sub(2, 2),
-    ':',
-    time_str:sub(3, 3),
-    time_str:sub(4, 4),
-  }
-
-  local GAP = 2 -- braille cells between characters
-  local total_width = 0
-  for i, ch in ipairs(chars) do
-    local g = glyphs[ch]
-    if g then
-      total_width = total_width + g.width
-      if i < #chars then
-        total_width = total_width + GAP
-      end
-    end
-  end
+  local GAP = 2
+  local chars = get_time_chars()
+  local total_width = calc_total_width(chars, GAP)
 
   local win_width = vim.api.nvim_win_get_width(win)
   local win_height = vim.api.nvim_win_get_height(win)
   local start_col = math.max(0, math.floor((win_width - total_width) / 2))
   local start_row = math.max(1, math.floor((win_height - glyph_rows) / 2))
-  local pad_str = string.rep(' ', start_col)
 
-  -- Build buffer lines
-  local buf_lines = {}
-  for _ = 1, win_height do
-    buf_lines[#buf_lines + 1] = ''
-  end
-
-  for r = 1, glyph_rows do
-    local row_idx = start_row + r - 1
-    if row_idx >= 1 and row_idx <= win_height then
-      local parts = {}
-      for i, ch in ipairs(chars) do
-        local g = glyphs[ch]
-        if g then
-          if ch == ':' and not state.colon_on then
-            parts[#parts + 1] = string.rep(EMPTY, g.width)
-          else
-            parts[#parts + 1] = g.rows[r] or string.rep(EMPTY, g.width)
-          end
-          if i < #chars then
-            parts[#parts + 1] = string.rep(EMPTY, GAP)
-          end
-        end
-      end
-      buf_lines[row_idx] = pad_str .. table.concat(parts)
-    end
-  end
-
-  vim.api.nvim_set_option_value('modifiable', true, { buf = state.buf })
-  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, buf_lines)
-  vim.api.nvim_set_option_value('modifiable', false, { buf = state.buf })
-
-  -- Highlight all glyph rows
-  -- col offsets are in bytes: pad_str is ASCII (1 byte/char), braille is 3 bytes/char
-  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
-  for r = 1, glyph_rows do
-    local row_idx = start_row + r - 1
-    if row_idx >= 1 and row_idx <= win_height then
-      vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
-        end_col = start_col + total_width * 3,
-        hl_group = 'JikanClock',
-      })
-    end
-  end
+  build_and_highlight(chars, win, start_row, start_col, total_width)
 
   pcall(vim.api.nvim_win_set_cursor, win, { start_row + math.floor(glyph_rows / 2), start_col })
 end
@@ -181,7 +183,7 @@ local function resolve_luminance(bg_int)
   local g = math.floor(bg_int / 0x100) % 0x100
   local b = bg_int % 0x100
   local lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return lum < 0.4 and '#AED6F1' or '#1A4A7A'
+  return lum < 0.4 and COLOR_DARK or COLOR_LIGHT
 end
 
 local function resolve_color()
@@ -194,7 +196,7 @@ local function resolve_color()
     return resolve_luminance(hl.bg)
   end
 
-  return vim.o.background == 'light' and '#1A4A7A' or '#AED6F1'
+  return vim.o.background == 'light' and COLOR_LIGHT or COLOR_DARK
 end
 
 local function apply_hl()
@@ -209,11 +211,16 @@ local function open()
   apply_hl()
 
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_set_option_value('buftype', 'nofile', { buf = buf })
-  vim.api.nvim_set_option_value('bufhidden', 'wipe', { buf = buf })
-  vim.api.nvim_set_option_value('swapfile', false, { buf = buf })
-  vim.api.nvim_set_option_value('filetype', 'jikan', { buf = buf })
-  vim.api.nvim_set_option_value('modifiable', false, { buf = buf })
+  local buf_opts = {
+    buftype = 'nofile',
+    bufhidden = 'wipe',
+    swapfile = false,
+    filetype = 'jikan',
+    modifiable = false,
+  }
+  for k, v in pairs(buf_opts) do
+    vim.api.nvim_set_option_value(k, v, { buf = buf })
+  end
 
   state.buf = buf
   state.colon_on = true
@@ -221,19 +228,20 @@ local function open()
   vim.api.nvim_win_set_buf(0, buf)
 
   local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_set_option_value('number', false, { win = win })
-  vim.api.nvim_set_option_value('relativenumber', false, { win = win })
-  vim.api.nvim_set_option_value('cursorline', false, { win = win })
-  vim.api.nvim_set_option_value('cursorcolumn', false, { win = win })
-  vim.api.nvim_set_option_value('signcolumn', 'no', { win = win })
-  vim.api.nvim_set_option_value('foldcolumn', '0', { win = win })
-  vim.api.nvim_set_option_value('list', false, { win = win })
-  vim.api.nvim_set_option_value('colorcolumn', '', { win = win })
-  vim.api.nvim_set_option_value(
-    'winhighlight',
-    'ColorColumn:Normal,CursorColumn:Normal,CursorLine:Normal',
-    { win = win }
-  )
+  local win_opts = {
+    number = false,
+    relativenumber = false,
+    cursorline = false,
+    cursorcolumn = false,
+    signcolumn = 'no',
+    foldcolumn = '0',
+    list = false,
+    colorcolumn = '',
+    winhighlight = 'ColorColumn:Normal,CursorColumn:Normal,CursorLine:Normal',
+  }
+  for k, v in pairs(win_opts) do
+    vim.api.nvim_set_option_value(k, v, { win = win })
+  end
   vim.api.nvim_exec_autocmds('BufEnter', { buffer = buf })
 
   draw()
@@ -264,13 +272,12 @@ local function open()
 end
 
 function M.setup(opts)
-  if opts then
-    if opts.font then
-      config.font = opts.font
-    end
-    if opts.color then
-      config.color = opts.color
-    end
+  opts = opts or {}
+  if opts.font then
+    config.font = opts.font
+  end
+  if opts.color then
+    config.color = opts.color
   end
   local aug = vim.api.nvim_create_augroup('jikan', { clear = true })
   vim.api.nvim_create_autocmd('VimEnter', {
