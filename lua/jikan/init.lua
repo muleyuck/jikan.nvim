@@ -14,6 +14,39 @@ local config = { font = 'Inter', color = nil }
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
 local glyph_rows = 0
 
+local function process_glyph(raw_lines, max_rows, empty_char)
+  local width = 0
+  for _, line in ipairs(raw_lines) do
+    local w = #line / 3
+    if w > width then
+      width = w
+    end
+  end
+  local rows = {}
+  for _, line in ipairs(raw_lines) do
+    local w = #line / 3
+    if w < width then
+      rows[#rows + 1] = line .. string.rep(empty_char, width - w)
+    else
+      rows[#rows + 1] = line
+    end
+  end
+  local pad_top = math.floor((max_rows - #rows) / 2)
+  local pad_bot = max_rows - #rows - pad_top
+  local empty_row = string.rep(empty_char, width)
+  local padded = {}
+  for _ = 1, pad_top do
+    padded[#padded + 1] = empty_row
+  end
+  for _, r in ipairs(rows) do
+    padded[#padded + 1] = r
+  end
+  for _ = 1, pad_bot do
+    padded[#padded + 1] = empty_row
+  end
+  return { rows = padded, width = width }
+end
+
 local function load_glyphs()
   local src = debug.getinfo(1, 'S').source:sub(2)
   local root = vim.fn.fnamemodify(src, ':h:h:h')
@@ -42,39 +75,7 @@ local function load_glyphs()
   -- second pass: pad each glyph to max_rows
   local result = {}
   for ch, raw in pairs(raw_map) do
-    -- width = widest row in braille chars (each char is 3 bytes)
-    local width = 0
-    for _, line in ipairs(raw) do
-      local w = #line / 3
-      if w > width then
-        width = w
-      end
-    end
-    -- pad each row to uniform width
-    local rows = {}
-    for _, line in ipairs(raw) do
-      local w = #line / 3
-      if w < width then
-        rows[#rows + 1] = line .. string.rep(EMPTY, width - w)
-      else
-        rows[#rows + 1] = line
-      end
-    end
-    -- center vertically within max_rows
-    local pad_top = math.floor((max_rows - #rows) / 2)
-    local pad_bot = max_rows - #rows - pad_top
-    local empty_row = string.rep(EMPTY, width)
-    local padded = {}
-    for _ = 1, pad_top do
-      padded[#padded + 1] = empty_row
-    end
-    for _, r in ipairs(rows) do
-      padded[#padded + 1] = r
-    end
-    for _ = 1, pad_bot do
-      padded[#padded + 1] = empty_row
-    end
-    result[ch] = { rows = padded, width = width }
+    result[ch] = process_glyph(raw, max_rows, EMPTY)
   end
 
   return result, max_rows
@@ -179,6 +180,14 @@ local function stop_timer()
   end
 end
 
+local function resolve_luminance(bg_int)
+  local r = math.floor(bg_int / 0x10000) % 0x100
+  local g = math.floor(bg_int / 0x100) % 0x100
+  local b = bg_int % 0x100
+  local lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return lum < 0.4 and '#AED6F1' or '#1A4A7A'
+end
+
 local function resolve_color()
   if config.color then
     return config.color
@@ -186,12 +195,7 @@ local function resolve_color()
 
   local hl = vim.api.nvim_get_hl(0, { name = 'Normal' })
   if hl and hl.bg then
-    local bg = hl.bg
-    local r = math.floor(bg / 0x10000) % 0x100
-    local g = math.floor(bg / 0x100) % 0x100
-    local b = bg % 0x100
-    local lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return lum < 0.4 and '#AED6F1' or '#1A4A7A'
+    return resolve_luminance(hl.bg)
   end
 
   return vim.o.background == 'light' and '#1A4A7A' or '#AED6F1'
@@ -277,5 +281,10 @@ function M.setup(opts)
     callback = open,
   })
 end
+
+M._test = {
+  resolve_luminance = resolve_luminance,
+  process_glyph = process_glyph,
+}
 
 return M
