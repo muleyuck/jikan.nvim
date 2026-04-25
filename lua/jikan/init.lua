@@ -111,7 +111,6 @@ local function build_and_highlight(chars, win, start_row, start_col, total_width
     buf_lines[#buf_lines + 1] = ''
   end
 
-  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
   for r = 1, glyph_rows do
     local row_idx = start_row + r - 1
     if row_idx >= 1 and row_idx <= win_height then
@@ -127,16 +126,23 @@ local function build_and_highlight(chars, win, start_row, start_col, total_width
         end
       end
       buf_lines[row_idx] = pad_str .. table.concat(parts)
-      vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
-        end_col = start_col + total_width * 3,
-        hl_group = 'JikanClock',
-      })
     end
   end
 
   vim.api.nvim_set_option_value('modifiable', true, { buf = state.buf })
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, buf_lines)
   vim.api.nvim_set_option_value('modifiable', false, { buf = state.buf })
+
+  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
+  for r = 1, glyph_rows do
+    local row_idx = start_row + r - 1
+    if row_idx >= 1 and row_idx <= win_height then
+      vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
+        end_col = start_col + total_width * 3,
+        hl_group = 'JikanClock',
+      })
+    end
+  end
 end
 
 local function draw()
