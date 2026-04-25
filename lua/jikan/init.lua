@@ -216,6 +216,7 @@ local function open()
   vim.api.nvim_set_option_value('buftype', 'nofile', { buf = buf })
   vim.api.nvim_set_option_value('bufhidden', 'wipe', { buf = buf })
   vim.api.nvim_set_option_value('swapfile', false, { buf = buf })
+  vim.api.nvim_set_option_value('filetype', 'jikan', { buf = buf })
   vim.api.nvim_set_option_value('modifiable', false, { buf = buf })
 
   state.buf = buf
@@ -237,6 +238,7 @@ local function open()
     'ColorColumn:Normal,CursorColumn:Normal,CursorLine:Normal',
     { win = win }
   )
+  vim.api.nvim_exec_autocmds('BufEnter', { buffer = buf })
 
   draw()
 
