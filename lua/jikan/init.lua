@@ -7,6 +7,12 @@ local state = {
   buf = nil,
   timer = nil,
   colon_on = true,
+  glyph_row = 0, -- 0-indexed first row of glyph area
+  char_cols = {}, -- [i] = byte column start of chars[i]
+  char_widths = {}, -- [i] = braille cell width of chars[i]
+  last_chars = {}, -- last drawn time chars
+  clock_col = 0, -- byte column of clock start (for re-applying highlights)
+  clock_total_width = 0, -- total clock width in braille cells (for re-applying highlights)
 }
 
 local DEFAULT_FONT = 'Inter'
@@ -24,6 +30,22 @@ local GAP = 2 -- braille cells between characters
 local glyphs = nil -- { [char] = { rows = {...}, width = N } }
 local glyph_rows = 0
 
+local function pad_rows(rows, target_rows, empty_row)
+  local pad_top = math.floor((target_rows - #rows) / 2)
+  local pad_bot = target_rows - #rows - pad_top
+  local padded = {}
+  for _ = 1, pad_top do
+    padded[#padded + 1] = empty_row
+  end
+  for _, r in ipairs(rows) do
+    padded[#padded + 1] = r
+  end
+  for _ = 1, pad_bot do
+    padded[#padded + 1] = empty_row
+  end
+  return padded
+end
+
 local function process_glyph(raw_lines, max_rows, empty_char)
   local width = 0
   for _, line in ipairs(raw_lines) do
@@ -37,20 +59,16 @@ local function process_glyph(raw_lines, max_rows, empty_char)
     local w = #line / 3
     rows[#rows + 1] = w < width and (line .. string.rep(empty_char, width - w)) or line
   end
-  local pad_top = math.floor((max_rows - #rows) / 2)
-  local pad_bot = max_rows - #rows - pad_top
   local empty_row = string.rep(empty_char, width)
-  local padded = {}
-  for _ = 1, pad_top do
-    padded[#padded + 1] = empty_row
+  return { rows = pad_rows(rows, max_rows, empty_row), width = width }
+end
+
+local function load_glyph_file(art, font, suffix)
+  local raw = vim.fn.readfile(art .. font .. '/' .. suffix .. '.txt')
+  if not raw or #raw == 0 then
+    raw = vim.fn.readfile(art .. DEFAULT_FONT .. '/' .. suffix .. '.txt')
   end
-  for _, r in ipairs(rows) do
-    padded[#padded + 1] = r
-  end
-  for _ = 1, pad_bot do
-    padded[#padded + 1] = empty_row
-  end
-  return { rows = padded, width = width }
+  return raw
 end
 
 local function load_glyphs()
@@ -64,11 +82,7 @@ local function load_glyphs()
   local result = {}
   for _, ch in ipairs(chars) do
     local suffix = ch == ':' and 'colon' or ch
-    local fname = config.font .. '/' .. suffix .. '.txt'
-    local raw = vim.fn.readfile(art .. fname)
-    if not raw or #raw == 0 then
-      raw = vim.fn.readfile(art .. 'Inter/' .. suffix .. '.txt')
-    end
+    local raw = load_glyph_file(art, config.font, suffix)
     if raw and #raw > 0 then
       result[ch] = process_glyph(raw, max_rows, EMPTY)
     end
@@ -102,9 +116,56 @@ local function calc_total_width(chars, gap)
   return total
 end
 
+local function apply_clock_highlights()
+  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
+  for r = 0, glyph_rows - 1 do
+    vim.api.nvim_buf_set_extmark(state.buf, ns_id, state.glyph_row + r, state.clock_col, {
+      end_col = state.clock_col + state.clock_total_width * 3,
+      hl_group = 'JikanClock',
+    })
+  end
+end
+
+local function update_char_positions(chars, start_col)
+  local col = start_col
+  for i, ch in ipairs(chars) do
+    state.char_cols[i] = col
+    local g = glyphs[ch]
+    if g then
+      state.char_widths[i] = g.width
+      col = col + g.width * 3
+      if i < #chars then
+        col = col + GAP * 3
+      end
+    end
+  end
+end
+
+local function build_clock_row(chars, row_1indexed, colon_on)
+  local parts = {}
+  for i, ch in ipairs(chars) do
+    local g = glyphs[ch]
+    if g then
+      local blank = string.rep(EMPTY, g.width)
+      local row_text = (i == 3 and not colon_on) and blank or (g.rows[row_1indexed] or blank)
+      parts[#parts + 1] = row_text
+      if i < #chars then
+        parts[#parts + 1] = string.rep(EMPTY, GAP)
+      end
+    end
+  end
+  return table.concat(parts)
+end
+
 local function build_and_highlight(chars, win, start_row, start_col, total_width)
   local win_height = vim.api.nvim_win_get_height(win)
   local pad_str = string.rep(' ', start_col)
+
+  update_char_positions(chars, start_col)
+  state.glyph_row = start_row - 1 -- 0-indexed
+  state.last_chars = { chars[1], chars[2], chars[3], chars[4], chars[5] }
+  state.clock_col = start_col
+  state.clock_total_width = total_width
 
   local buf_lines = {}
   for _ = 1, win_height do
@@ -114,18 +175,7 @@ local function build_and_highlight(chars, win, start_row, start_col, total_width
   for r = 1, glyph_rows do
     local row_idx = start_row + r - 1
     if row_idx >= 1 and row_idx <= win_height then
-      local parts = {}
-      for i, ch in ipairs(chars) do
-        local g = glyphs[ch]
-        if g then
-          local blank = string.rep(EMPTY, g.width)
-          parts[#parts + 1] = (ch == ':' and not state.colon_on) and blank or (g.rows[r] or blank)
-          if i < #chars then
-            parts[#parts + 1] = string.rep(EMPTY, GAP)
-          end
-        end
-      end
-      buf_lines[row_idx] = pad_str .. table.concat(parts)
+      buf_lines[row_idx] = pad_str .. build_clock_row(chars, r, state.colon_on)
     end
   end
 
@@ -133,16 +183,7 @@ local function build_and_highlight(chars, win, start_row, start_col, total_width
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, buf_lines)
   vim.api.nvim_set_option_value('modifiable', false, { buf = state.buf })
 
-  vim.api.nvim_buf_clear_namespace(state.buf, ns_id, 0, -1)
-  for r = 1, glyph_rows do
-    local row_idx = start_row + r - 1
-    if row_idx >= 1 and row_idx <= win_height then
-      vim.api.nvim_buf_set_extmark(state.buf, ns_id, row_idx - 1, start_col, {
-        end_col = start_col + total_width * 3,
-        hl_group = 'JikanClock',
-      })
-    end
-  end
+  apply_clock_highlights()
 end
 
 local function draw()
@@ -167,13 +208,71 @@ local function draw()
   local start_row = math.max(1, math.floor((win_height - glyph_rows) / 2))
 
   build_and_highlight(chars, win, start_row, start_col, total_width)
+end
 
-  pcall(vim.api.nvim_win_set_cursor, win, { start_row + math.floor(glyph_rows / 2), start_col })
+local function update_digits(new_chars)
+  local old_end_col = state.clock_col + state.clock_total_width * 3
+  for r = 0, glyph_rows - 1 do
+    local text = build_clock_row(new_chars, r + 1, state.colon_on)
+    vim.api.nvim_buf_set_text(
+      state.buf,
+      state.glyph_row + r,
+      state.clock_col,
+      state.glyph_row + r,
+      old_end_col,
+      { text }
+    )
+  end
+  update_char_positions(new_chars, state.clock_col)
+  state.clock_total_width = calc_total_width(new_chars, GAP)
+  state.last_chars = { new_chars[1], new_chars[2], new_chars[3], new_chars[4], new_chars[5] }
+end
+
+local function update_colon()
+  local colon_g = glyphs[':']
+  if colon_g then
+    local col = state.char_cols[3]
+    local width = state.char_widths[3]
+    local blank = string.rep(EMPTY, width)
+    for r = 0, glyph_rows - 1 do
+      local text = state.colon_on and (colon_g.rows[r + 1] or blank) or blank
+      vim.api.nvim_buf_set_text(
+        state.buf,
+        state.glyph_row + r,
+        col,
+        state.glyph_row + r,
+        col + width * 3,
+        { text }
+      )
+    end
+  end
 end
 
 local function tick()
+  if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
+    return
+  end
+
+  local new_chars = get_time_chars()
   state.colon_on = not state.colon_on
-  draw()
+
+  local digit_changed = false
+  for _, i in ipairs({ 1, 2, 4, 5 }) do
+    if new_chars[i] ~= state.last_chars[i] then
+      digit_changed = true
+      break
+    end
+  end
+
+  vim.api.nvim_set_option_value('modifiable', true, { buf = state.buf })
+  if digit_changed then
+    update_digits(new_chars)
+  else
+    update_colon()
+  end
+  vim.api.nvim_set_option_value('modifiable', false, { buf = state.buf })
+
+  apply_clock_highlights()
 end
 
 local function stop_timer()
@@ -208,13 +307,7 @@ local function apply_hl()
   vim.api.nvim_set_hl(0, 'JikanClock', { fg = resolve_color() })
 end
 
-local function open()
-  if vim.fn.argc() ~= 0 then
-    return
-  end
-
-  apply_hl()
-
+local function create_clock_buffer()
   local buf = vim.api.nvim_create_buf(false, true)
   local buf_opts = {
     buftype = 'nofile',
@@ -226,27 +319,43 @@ local function open()
   for k, v in pairs(buf_opts) do
     vim.api.nvim_set_option_value(k, v, { buf = buf })
   end
+  return buf
+end
 
+local function setup_autocmds(buf)
+  local aug = vim.api.nvim_create_augroup('jikan_active', { clear = true })
+  vim.api.nvim_create_autocmd('ColorScheme', {
+    group = aug,
+    callback = apply_hl,
+  })
+  vim.api.nvim_create_autocmd('VimResized', {
+    group = aug,
+    buffer = buf,
+    callback = draw,
+  })
+  vim.api.nvim_create_autocmd('BufWipeout', {
+    group = aug,
+    buffer = buf,
+    once = true,
+    callback = function()
+      stop_timer()
+      vim.api.nvim_del_augroup_by_name('jikan_active')
+    end,
+  })
+end
+
+local function open()
+  if vim.fn.argc() ~= 0 then
+    return
+  end
+
+  apply_hl()
+
+  local buf = create_clock_buffer()
   state.buf = buf
   state.colon_on = true
 
   vim.api.nvim_win_set_buf(0, buf)
-
-  local win = vim.api.nvim_get_current_win()
-  local win_opts = {
-    number = false,
-    relativenumber = false,
-    cursorline = false,
-    cursorcolumn = false,
-    signcolumn = 'no',
-    foldcolumn = '0',
-    list = false,
-    colorcolumn = '',
-    winhighlight = 'ColorColumn:Normal,CursorColumn:Normal,CursorLine:Normal',
-  }
-  for k, v in pairs(win_opts) do
-    vim.api.nvim_set_option_value(k, v, { win = win })
-  end
   vim.api.nvim_exec_autocmds('BufEnter', { buffer = buf })
 
   draw()
@@ -255,25 +364,7 @@ local function open()
     tick()
   end, { ['repeat'] = -1 })
 
-  local aug_active = vim.api.nvim_create_augroup('jikan_active', { clear = true })
-  vim.api.nvim_create_autocmd('ColorScheme', {
-    group = aug_active,
-    callback = apply_hl,
-  })
-  vim.api.nvim_create_autocmd('VimResized', {
-    group = aug_active,
-    buffer = buf,
-    callback = draw,
-  })
-  vim.api.nvim_create_autocmd('BufWipeout', {
-    group = aug_active,
-    buffer = buf,
-    once = true,
-    callback = function()
-      stop_timer()
-      vim.api.nvim_del_augroup_by_name('jikan_active')
-    end,
-  })
+  setup_autocmds(buf)
 end
 
 function M.setup(opts)
