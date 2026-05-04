@@ -195,10 +195,6 @@ local function draw()
     return
   end
 
-  if not glyphs then
-    glyphs, glyph_rows = load_glyphs()
-  end
-
   local chars = get_time_chars()
   local total_width = calc_total_width(chars, GAP)
 
@@ -356,7 +352,6 @@ local function open()
   state.colon_on = true
 
   vim.api.nvim_win_set_buf(0, buf)
-  vim.api.nvim_exec_autocmds('BufEnter', { buffer = buf })
 
   draw()
 
@@ -375,11 +370,20 @@ function M.setup(opts)
   if opts.color then
     config.color = opts.color
   end
+  glyphs, glyph_rows = load_glyphs()
   local aug = vim.api.nvim_create_augroup('jikan', { clear = true })
   vim.api.nvim_create_autocmd('VimEnter', {
     group = aug,
     once = true,
-    callback = open,
+    callback = function()
+      local save_ei = vim.o.eventignore
+      vim.o.eventignore = 'all'
+      open()
+      vim.o.eventignore = save_ei
+      if state.buf then
+        vim.api.nvim_exec_autocmds('BufEnter', { buffer = state.buf })
+      end
+    end,
   })
 end
 
