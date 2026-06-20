@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/muleyuck/jikan.nvim/compare/v1.1.0...v1.1.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* suppress events during open and fire BufEnter after initialization ([4af6aa2](https://github.com/muleyuck/jikan.nvim/commit/4af6aa24bf887f497de16b92854eb3c4925dcf58))
+
 ## [1.1.0](https://github.com/muleyuck/jikan.nvim/compare/v1.0.0...v1.1.0) (2026-04-25)
 
 
